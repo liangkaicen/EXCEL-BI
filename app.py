@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import json
 import io
 
-# 页面配置：宽屏模式，让图表展示更大气
+# 页面配置
 st.set_page_config(page_title="高级交互式数据看板", layout="wide", initial_sidebar_state="expanded")
 st.title("📊 Excel 高级交互式数据看板")
 
@@ -15,9 +15,7 @@ if "charts" not in st.session_state:
 if "filters" not in st.session_state:
     st.session_state.filters = []
 
-# ============================
 # 页面整体布局：左中右三栏结构
-# ============================
 col_left_sidebar, col_main, col_right_sidebar = st.columns([2.5, 8, 2.5])
 
 # ============================
@@ -26,53 +24,32 @@ col_left_sidebar, col_main, col_right_sidebar = st.columns([2.5, 8, 2.5])
 with col_left_sidebar:
     st.header("⚙️ 看板操作台")
     
-    # 1.1 点击展开配置说明
     with st.expander("📖 点击展开配置说明", expanded=False):
         st.markdown("""
-**1. 数据筛选**
-* 在页面主体顶部直接进行全局数据过滤。
-**2. 图表配置**
-* 点击“添加新图表”生成空白卡片。
-* 在图表下方的配置栏中，自由选择图表类型、字段及数值格式。
-* 拖拽“图表宽度”滑块（1-12）调节卡片大小。
-**3. 布局保存**
-* 点击“导出当前看板配置”保存为 JSON 文件。
-* 下次上传 Excel 并导入该 JSON 文件，即可一键还原！
+**1. 数据筛选**：在页面主体顶部直接进行全局数据过滤。
+**2. 图表配置**：点击“添加新图表”生成空白卡片，在图表下方的配置栏中自由选择类型与字段。
+**3. 布局保存**：点击“导出当前看板配置”保存为 JSON 文件，下次可一键还原！
 """)
 
     st.divider()
-
-    # 1.2 上传文件入口
     st.subheader("📂 数据源")
     uploaded_file = st.file_uploader("请上传 Excel 文件 (.xlsx)", type=["xlsx"], label_visibility="collapsed")
 
     st.divider()
-
-    # 1.3 添加新图表
     st.subheader("🎨 图表管理")
     if st.button("➕ 添加新图表", use_container_width=True, type="primary"):
-        # 获取当前数据的字段，防止报错
         init_x = st.session_state.get('df_columns', [None])[0] if st.session_state.get('df_columns') else None
         init_y = st.session_state.get('df_numeric', [None])[0] if st.session_state.get('df_numeric') else None
         init_color = st.session_state.get('df_object', [None])[0] if st.session_state.get('df_object') else None
         
         st.session_state.charts.append({
-            "chart_type": "柱状图", "x_axis": init_x,
-            "y_axis": init_y, "width": 12, 
-            "y_axis_2": init_y,
-            "size_col": init_y,
-            "lat_col": None, "lon_col": None,
-            "color_col": init_color,
-            # 👇 新增字段默认值
-            "show_values": False,
-            "value_format": ".2f",
-            "y_axis_title_format": ""
+            "chart_type": "柱状图", "x_axis": init_x, "y_axis": init_y, "width": 12, 
+            "y_axis_2": init_y, "size_col": init_y, "lat_col": None, "lon_col": None,
+            "color_col": init_color, "show_values": False, "value_format": ".2f", "y_axis_title_format": ""
         })
         st.rerun()
 
     st.divider()
-
-    # 1.4 导入导出看板配置
     st.subheader("💾 配置存取")
     export_data = {"charts": st.session_state.charts, "filters": st.session_state.filters}
     if st.session_state.charts or st.session_state.filters:
@@ -95,12 +72,9 @@ with col_left_sidebar:
 # ============================
 with col_right_sidebar:
     st.header("🔧 辅助功能区")
-    
-    # 2.1 合并分析 Sheet
     st.subheader("📑 多Sheet合并")
     if uploaded_file is not None:
         try:
-            # 只有在文件上传后，才读取 Sheet 信息
             if 'all_sheets_cache' not in st.session_state or st.session_state.get('current_file_name') != uploaded_file.name:
                 all_sheets = pd.read_excel(uploaded_file, sheet_name=None)
                 st.session_state['all_sheets_cache'] = all_sheets
@@ -108,29 +82,19 @@ with col_right_sidebar:
             
             all_sheets = st.session_state['all_sheets_cache']
             sheet_names = list(all_sheets.keys())
-            
-            selected_sheets = st.multiselect(
-                "选择要合并的表格", 
-                sheet_names, 
-                default=sheet_names,
-                label_visibility="collapsed"
-            )
+            selected_sheets = st.multiselect("选择要合并的表格", sheet_names, default=sheet_names, label_visibility="collapsed")
             
             if not selected_sheets:
                 st.warning("⚠️ 请至少选择一个 Sheet")
                 st.stop()
             
-            # 合并数据
             df_list = [all_sheets[sheet] for sheet in selected_sheets]
             df = pd.concat(df_list, ignore_index=True)
             
-            # 将字段信息存入 session_state，供左侧初始化图表使用
             st.session_state['df_columns'] = df.columns.tolist()
             st.session_state['df_numeric'] = df.select_dtypes(include=['number']).columns.tolist()
             st.session_state['df_object'] = df.select_dtypes(include=['object']).columns.tolist()
-
             st.caption(f"✅ 已合并 {len(selected_sheets)} 个表，共 {len(df)} 条数据")
-
         except Exception as e:
             st.error(f"读取文件失败: {e}")
             st.stop()
@@ -139,59 +103,40 @@ with col_right_sidebar:
         df = None
 
     st.divider()
-
-    # 2.2 导出合并后的数据
     st.subheader("💾 导出数据")
     if uploaded_file is not None and 'df' in locals():
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False, sheet_name='合并数据')
         processed_data = output.getvalue()
-        st.download_button(
-            label="📥 下载合并后的 Excel",
-            data=processed_data,
-            file_name="merged_data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        st.download_button(label="📥 下载合并后的 Excel", data=processed_data, file_name="merged_data.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
 
 # ============================
-# 3. 页面主体展示区
+# 3. 页面主体展示区 (开头部分)
 # ============================
 with col_main:
     if uploaded_file is not None and 'df' in locals():
-        
-        # 全局提取字段信息，防止后续作用域报错
         all_cols = df.columns.tolist()
         text_cols = df.select_dtypes(include=['object']).columns.tolist()
         num_cols = df.select_dtypes(include=['number']).columns.tolist()
         date_cols = df.select_dtypes(include=['datetime']).columns.tolist()
         
-        # 3.1 顶部数据筛选器（平铺展示）
         with st.container(border=True):
             st.subheader("🔍 全局数据筛选")
-            
-            # 管理筛选器
             if st.button("➕ 添加筛选条件", key="add_filter_main"):
                 st.session_state.filters.append({"col_name": None, "filter_type": None})
                 st.rerun()
                 
-            # 渲染筛选器
             filtered_df = df.copy()
-            filter_cols = st.columns(3) # 每行放3个筛选器
-            
+            filter_cols = st.columns(3)
             for i, f_config in enumerate(st.session_state.filters):
                 with filter_cols[i % 3]: 
                     with st.container(border=True):
                         current_col_idx = 0
                         if f_config["col_name"] is not None and f_config["col_name"] in all_cols:
                             current_col_idx = all_cols.index(f_config["col_name"]) + 1
-                            
-                        selected_col = st.selectbox("选择字段", [None] + all_cols, 
-                            index=current_col_idx,
-                            key=f"sel_col_{i}", label_visibility="collapsed")
+                        selected_col = st.selectbox("选择字段", [None] + all_cols, index=current_col_idx, key=f"sel_col_{i}", label_visibility="collapsed")
                         f_config["col_name"] = selected_col
-                        
                         if selected_col:
                             if selected_col in text_cols:
                                 unique_values = df[selected_col].dropna().unique()
@@ -207,27 +152,22 @@ with col_main:
                                 date_range = st.date_input(f"选择 {selected_col} 范围", [min_date, max_date], key=f"filter_val_{i}", label_visibility="collapsed")
                                 if len(date_range) == 2:
                                     filtered_df = filtered_df[(filtered_df[selected_col] >= pd.to_datetime(date_range[0])) & (filtered_df[selected_col] <= pd.to_datetime(date_range[1]))]
-                        
                         if st.button("🗑️", key=f"del_filter_{i}"):
                             st.session_state.filters.pop(i)
                             st.rerun()
-        
         st.success(f"✅ 筛选完成，当前展示 {len(filtered_df)} 条数据")
         st.divider()
-
-        # 3.2 图表展示区（配置与展示相连）
+        # 3.2 图表展示区（核心逻辑）
         st.subheader("📈 图表展示区")
         if not st.session_state.charts:
             st.info("👈 请在左侧操作台点击【添加新图表】开始构建你的看板。")
         
-        # 提取筛选后数据的字段，用于图表配置下拉框
         f_columns = filtered_df.columns.tolist()
         f_numeric_cols = filtered_df.select_dtypes(include=['number']).columns.tolist()
         f_object_cols = filtered_df.select_dtypes(include=['object']).columns.tolist()
         f_lat_cols = [col for col in f_columns if 'lat' in col.lower() or '纬度' in col]
         f_lon_cols = [col for col in f_columns if 'lon' in col.lower() or 'long' in col.lower() or '经度' in col]
 
-        # 辅助函数：安全获取下拉框默认索引
         def get_safe_index(val, options):
             if val in options: return options.index(val)
             return 0
@@ -237,7 +177,6 @@ with col_main:
             current_row_width = 0
             row_chart_configs = []
             temp_i = i
-            # 计算当前行能放下哪些图表
             while temp_i < len(st.session_state.charts):
                 w = st.session_state.charts[temp_i]['width']
                 if current_row_width + w <= 12:
@@ -248,17 +187,14 @@ with col_main:
                     break
             
             if row_chart_configs:
-                # 渲染当前行的图表
                 cols = st.columns([cfg['width'] for cfg in row_chart_configs])
                 for idx, cfg in enumerate(row_chart_configs):
                     with cols[idx]:
-                        # 配置与展示相连：直接在图表上方或内部提供配置
                         with st.expander(f"⚙️ 配置图表 {i+1}: {cfg['chart_type']}", expanded=False):
                             chart_types = ["柱状图", "折线图", "散点图", "饼图", "箱线图", "面积图", 
                                            "气泡图", "百分比柱状图", "线柱混搭图", "色块地图", "气泡地图"]
                             cfg["chart_type"] = st.selectbox("图表类型", chart_types, key=f"type_{i}")
                             
-                            # 动态字段配置
                             if cfg["chart_type"] in ["色块地图", "气泡地图"]:
                                 cfg["lat_col"] = st.selectbox("纬度列 (lat)", f_columns, index=get_safe_index(cfg["lat_col"], f_columns), key=f"lat_{i}")
                                 cfg["lon_col"] = st.selectbox("经度列 (lon)", f_columns, index=get_safe_index(cfg["lon_col"], f_columns), key=f"lon_{i}")
@@ -288,14 +224,11 @@ with col_main:
                             
                             cfg["width"] = st.slider("图表宽度 (1-12)", 1, 12, cfg["width"], key=f"w_{i}")
 
-                            # 👇 新增：数值与坐标轴格式配置
                             st.markdown("**🔢 数值与坐标轴格式**")
                             show_values = st.checkbox("展示数值标签", value=cfg.get("show_values", False), key=f"show_val_{i}")
                             cfg["show_values"] = show_values
-                            
                             value_format = st.text_input("数值格式 (如 .2f, $,)", value=cfg.get("value_format", ".2f"), key=f"val_fmt_{i}")
                             cfg["value_format"] = value_format
-                            
                             y_axis_title_format = st.text_input("Y轴标题格式 (如 销售额(万元))", value=cfg.get("y_axis_title_format", ""), key=f"y_title_fmt_{i}")
                             cfg["y_axis_title_format"] = y_axis_title_format
 
@@ -332,15 +265,33 @@ with col_main:
 
                             if fig:
                                 fig.update_layout(margin=dict(l=0, r=0, t=40, b=0))
-                                
-                                # 👇 应用数值标签与坐标轴格式
-                                # 1. 配置 Y 轴标题
                                 if cfg.get("y_axis_title_format"):
                                     fig.update_layout(yaxis_title=cfg["y_axis_title_format"])
-                                
-                                # 2. 配置数值标签展示
                                 if cfg.get("show_values"):
                                     if ct == "饼图":
                                         fig.update_traces(texttemplate=f"%{{value:{cfg.get('value_format', '.2f')}}}", textposition="outside")
                                     elif ct in ["柱状图", "折线图", "面积图"]:
-                                        fig.update_traces(texttemplate=f"%{{y
+                                        fig.update_traces(texttemplate=f"%{{y:{cfg.get('value_format', '.2f')}}}", textposition="outside")
+                                st.plotly_chart(fig, use_container_width=True, key=f"final_plot_{i}")
+                        except Exception as e:
+                            st.error(f"图表生成出错: {e}")
+                    i += 1
+        
+        st.divider()
+        with st.expander("📖 图表配置与字段选择指南（点击展开）", expanded=False):
+            st.markdown("""
+            ### 📊 基础图表配置
+            * **柱状图 / 折线图 / 面积图 / 箱线图**：通常需要选择一个**分类字段（X轴）**和一个**数值字段（Y轴）**。
+            * **散点图**：需要选择两个**数值字段**，分别作为 X 轴和 Y 轴。
+            * **饼图**：需要一个**分类字段（Names）**和一个**数值字段（Values）**。
+            
+            ### ✨ 高级图表配置
+            * **气泡图**：在散点图的基础上，额外指定一个**数值字段作为“气泡大小”**。
+            * **百分比柱状图**：需要一个**分类字段（X轴）**、一个**分组维度（堆积颜色）**和一个**数值字段**。
+            * **线柱混搭图**：需要一个**分类字段（X轴）**和**两个数值字段**（分别作为左右Y轴）。
+            
+            ### 🗺️ 地图类图表配置
+            * **色块地图 / 气泡地图**：需要指定**纬度列 (lat)**、**经度列 (lon)**以及一个**数值列**。
+            """)
+    else:
+        st.info("👈 请先在左侧操作台上传 Excel 文件开始分析。")
