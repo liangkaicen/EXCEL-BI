@@ -29,11 +29,9 @@ st.markdown("""
     .stSidebar .block-container {
         padding-top: 1rem !important;
     }
-    /* 缩小侧边栏内元素的上下间距 */
     .stSidebar div[data-testid="stVerticalBlock"] > div {
         margin-bottom: 0.5rem !important;
     }
-    /* 缩小侧边栏标题与内容的间距 */
     .stSidebar h2, .stSidebar h3 {
         margin-bottom: 0.3rem !important;
     }
@@ -318,13 +316,12 @@ if uploaded_file is not None and 'df' in locals():
                         st.error(f"图表生成出错: {e}")
                 i += 1
     
-    # 3. 页面底部说明文档
+    # 3. 页面底部说明文档（已精简，确保不截断）
     st.divider()
-    with st.expander("📖 图表配置与字段选择指南（点击展开）", expanded=False):
+    with st.expander("📖 图表配置指南（点击展开）", expanded=False):
         st.markdown("""
-        ### 📊 基础图表配置
-        * **柱状图 / 折线图 / 面积图 / 箱线图**: 通常需要选择一个**分类字段（X轴）**和一个**数值字段（Y轴）**。
-        * **散点图**: 需要选择两个**数值字段**，分别作为 X 轴和 Y 轴。
-        * **饼图**: 需要一个**分类字段（Names）**和一个**数值字段（Values）**。
+        **基础图表**：柱状图/折线图/面积图/箱线图需选择分类字段(X轴)和数值字段(Y轴)；散点图需两个数值字段；饼图需分类和数值字段。
         
-        ### ✨
+        **高级图表**：气泡图需额外指定气泡大小字段；百分比柱状图需分类、分组维度和数值字段；线柱混搭图需分类和两个数值字段。
+        
+        **地图图表**：色块地图与气泡地图需指定纬度列(lat)、经度列(lon)及一个数值列。
