@@ -150,7 +150,7 @@ with st.sidebar:
             st.error(f"配置文件解析失败: {e}")
 
 # ============================
-# 页面主体展示区
+# 页面主体展示区 (上半部分：筛选器)
 # ============================
 if uploaded_file is not None and 'df' in locals():
     all_cols = df.columns.tolist()
@@ -196,7 +196,7 @@ if uploaded_file is not None and 'df' in locals():
     st.success(f"✅ 筛选完成，当前展示 {len(filtered_df)} 条数据")
     st.divider()
 
-    # 2. 图表展示区
+    # 2. 图表展示区 (核心逻辑)
     st.subheader("📈 图表展示区")
     if not st.session_state.charts:
         st.info("👈 请在左侧操作台点击【添加新图表】开始构建你的看板。")
@@ -316,12 +316,6 @@ if uploaded_file is not None and 'df' in locals():
                         st.error(f"图表生成出错: {e}")
                 i += 1
     
-    # 3. 页面底部说明文档（已精简，确保不截断）
+    # 3. 页面底部说明文档（精简完整版）
     st.divider()
-    with st.expander("📖 图表配置指南（点击展开）", expanded=False):
-        st.markdown("""
-        **基础图表**：柱状图/折线图/面积图/箱线图需选择分类字段(X轴)和数值字段(Y轴)；散点图需两个数值字段；饼图需分类和数值字段。
-        
-        **高级图表**：气泡图需额外指定气泡大小字段；百分比柱状图需分类、分组维度和数值字段；线柱混搭图需分类和两个数值字段。
-        
-        **地图图表**：色块地图与气泡地图需指定纬度列(lat)、经度列(lon)及一个数值列。
+    with st.expander("📖 图表配置指南（点击展开）", expanded
