@@ -318,4 +318,4 @@ if uploaded_file is not None and 'df' in locals():
     
     # 3. 页面底部说明文档（精简完整版）
     st.divider()
-    with st.expander("📖 图表配置指南（点击展开）", expanded
+    with st.expander("📖 图表配置指南（点击展开）", expanded=False
