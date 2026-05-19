@@ -150,7 +150,7 @@ with st.sidebar:
             st.error(f"配置文件解析失败: {e}")
 
 # ============================
-# 页面主体展示区 (上半部分：筛选器)
+# 页面主体展示区
 # ============================
 if uploaded_file is not None and 'df' in locals():
     all_cols = df.columns.tolist()
@@ -316,6 +316,5 @@ if uploaded_file is not None and 'df' in locals():
                         st.error(f"图表生成出错: {e}")
                 i += 1
     
-    # 3. 页面底部说明文档（精简完整版）
     st.divider()
-    with st.expander("📖 图表配置指南（点击展开）", expanded=False
+    st.caption("💡 提示：基础图表需选择X轴(分类)和Y轴(数值)；气泡图需额外指定大小字段；地图需指定经纬度列。")
