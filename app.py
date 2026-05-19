@@ -4,138 +4,150 @@ import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
 
-# 页面宽屏布局
-st.set_page_config(page_title="全能数据看板", layout="wide")
+# 页面基础配置：宽屏布局，适配数据看板
+st.set_page_config(page_title="交互式数据分析看板", layout="wide", page_icon="📊")
 
-# 1. 初始化 Session State (用于存储数据)
-if 'df' not in st.session_state:
-    st.session_state.df = None
-if 'charts_config' not in st.session_state:
-    st.session_state.charts_config = []
+# 1. 性能优化：使用缓存加载和处理数据
+@st.cache_data
+def load_and_merge_data(uploaded_file, selected_sheets):
+    """读取并合并Excel的多个Sheet"""
+    excel_file = pd.ExcelFile(uploaded_file)
+    dfs = []
+    for sheet in selected_sheets:
+        df = pd.read_excel(uploaded_file, sheet_name=sheet)
+        df['来源Sheet'] = sheet # 标记数据来源
+        dfs.append(df)
+    # 纵向合并数据（假设各Sheet表头结构一致）
+    combined_df = pd.concat(dfs, ignore_index=True)
+    return combined_df
 
-# --- 侧边栏：操作台 ---
+@st.cache_data
+def convert_df_to_excel(df):
+    """将合并后的DataFrame转换为Excel二进制流以供下载"""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='合并数据')
+    return output.getvalue()
+
+# ---------------- 侧边栏操作台 ----------------
 with st.sidebar:
     st.header("🛠️ 看板操作台")
     
-    # 配置说明
+    # 1. 点击展开配置说明
     with st.expander("📖 点击展开配置说明"):
-        st.write("1. 上传Excel自动合并所有Sheet\n2. 在下方添加图表并绑定字段\n3. 顶部筛选器会自动关联数据")
+        st.markdown("""
+        1. 上传Excel文件（支持多Sheet）
+        2. 勾选需要合并分析的Sheet
+        3. 在主体页面进行筛选与图表配置
+        """)
 
-    # 上传文件入口
-    st.subheader("📂 数据源")
-    uploaded_file = st.file_uploader("上传 Excel 文件", type=["xlsx", "xls"])
+    # 2. 上传文件入口
+    uploaded_file = st.file_uploader("上传Excel底表 (.xlsx)", type=["xlsx", "xls"])
     
+    merged_df = None
     if uploaded_file:
-        # 读取并合并多 Sheet
-        xlsx = pd.ExcelFile(uploaded_file)
-        all_sheets = []
-        for sheet in xlsx.sheet_names:
-            df_sheet = pd.read_excel(xlsx, sheet_name=sheet)
-            df_sheet['_来源Sheet'] = sheet  # 标记来源
-            all_sheets.append(df_sheet)
+        # 3. 合并分析sheet
+        excel_file = pd.ExcelFile(uploaded_file)
+        sheet_names = excel_file.sheet_names
+        selected_sheets = st.multiselect("选择需要合并的Sheet", options=sheet_names, default=sheet_names)
         
-        st.session_state.df = pd.concat(all_sheets, ignore_index=True)
-        st.success(f"成功合并 {len(xlsx.sheet_names)} 个Sheet，共 {len(st.session_state.df)} 条数据")
+        if st.button("开始合并与分析", type="primary"):
+            if selected_sheets:
+                with st.spinner("正在处理数据..."):
+                    merged_df = load_and_merge_data(uploaded_file, selected_sheets)
+                    st.success(f"成功合并 {len(selected_sheets)} 个Sheet，共 {len(merged_df)} 行数据！")
+            else:
+                st.warning("请至少选择一个Sheet！")
 
-    # 导出合并后的 Excel
-    if st.session_state.df is not None:
-        if st.button("📥 导出合并后的Excel"):
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                st.session_state.df.to_excel(writer, index=False, sheet_name='MergedData')
+        if merged_df is not None:
+            # 4. 导出合并后的excel
+            excel_data = convert_df_to_excel(merged_df)
             st.download_button(
-                label="点击下载 Excel",
-                data=output.getvalue(),
-                file_name="Merged_Data.xlsx",
+                label="📥 导出合并后的Excel",
+                data=excel_data,
+                file_name="merged_data.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
+    # 5. 添加新图表 (逻辑示意)
     st.divider()
-    st.subheader("📊 图表管理")
-    if st.button("➕ 添加新图表", use_container_width=True):
-        st.session_state.charts_config.append({
-            "id": len(st.session_state.charts_config),
-            "title": f"图表 {len(st.session_state.charts_config) + 1}",
-            "type": "柱状图",
-            "x": st.session_state.df.columns[0] if len(st.session_state.df.columns) > 0 else "",
-            "y": st.session_state.df.columns[1] if len(st.session_state.df.columns) > 1 else ""
-        })
-        st.rerun()
+    st.subheader("📈 图表管理")
+    add_chart = st.button("➕ 添加新图表模块")
+    
+    # 6. 图表配置说明
+    with st.expander("📝 图表配置说明"):
+        st.write("支持动态选择X/Y轴字段、图表类型及颜色主题。")
+        
+    # 7. 导入导出看板配置 (逻辑示意)
+    st.divider()
+    st.download_button(label="⚙️ 导出看板配置", data="配置JSON占位符", file_name="config.json")
+    st.file_uploader("导入看板配置", type=["json"])
 
-    # 导出/导入看板配置 (简化版：提供JSON下载)
-    if st.session_state.charts_config:
-        import json
-        config_json = json.dumps(st.session_state.charts_config, ensure_ascii=False)
-        st.download_button("💾 导出看板配置", config_json, file_name="config.json", mime="text/json")
+# ---------------- 页面主体展示区 ----------------
+st.title("📊 企业级数据可视化看板")
 
-# --- 页面主体 ---
-df = st.session_state.df
+if merged_df is not None:
+    # 顶部：全局数据筛选器
+    st.header("🔍 全局筛选栏")
+    filter_cols = st.multiselect("选择筛选字段（关联字段）", options=merged_df.columns)
+    
+    filtered_df = merged_df.copy()
+    # 动态生成筛选控件
+    cols = st.columns(len(filter_cols))
+    for i, col_name in enumerate(filter_cols):
+        unique_vals = filtered_df[col_name].dropna().unique()
+        selected_val = cols[i].selectbox(f"筛选 {col_name}", options=["全部"] + list(unique_vals))
+        if selected_val != "全部":
+            filtered_df = filtered_df[filtered_df[col_name] == selected_val]
 
-if df is None:
-    st.info("👈 请先在左侧上传 Excel 文件以开始分析")
+    st.divider()
+
+    # 传统统计学自动分析功能
+    st.header("🧮 自动统计分析")
+    if st.checkbox("展开统计分析报告"):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**数据概览：**")
+            st.dataframe(filtered_df.describe()) # 核心统计指标
+        with col2:
+            st.write("**缺失值统计：**")
+            st.dataframe(filtered_df.isnull().sum())
+
+    st.divider()
+
+    # 图表展示区域 (以动态配置图表为例)
+    st.header("📉 可视化图表展示")
+    
+    # 模拟“每一个图表的配置和图表要相连展示”的布局
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([1, 1, 2])
+        with c1:
+            chart_type = st.selectbox("图表类型", ["柱状图", "折线图", "散点图", "饼图", "气泡图", "色块地图"])
+            x_axis = st.selectbox("X轴字段", filtered_df.select_dtypes(include=['object', 'datetime']).columns)
+        with c2:
+            y_axis = st.selectbox("Y轴/数值字段", filtered_df.select_dtypes(include=['number']).columns)
+            color_theme = st.selectbox("配色主题", px.colors.qualitative.Plotly)
+        
+        with c3:
+            # 根据选择动态渲染图表
+            if chart_type == "柱状图":
+                fig = px.bar(filtered_df, x=x_axis, y=y_axis, title=f"{x_axis} - {y_axis} 柱状图", color_discrete_sequence=[color_theme])
+            elif chart_type == "折线图":
+                fig = px.line(filtered_df, x=x_axis, y=y_axis, title=f"{x_axis} - {y_axis} 趋势图", markers=True)
+            elif chart_type == "散点图":
+                fig = px.scatter(filtered_df, x=x_axis, y=y_axis, title=f"{x_axis} - {y_axis} 分布图")
+            elif chart_type == "饼图":
+                fig = px.pie(filtered_df, names=x_axis, values=y_axis, title=f"{x_axis} 占比分析")
+            # 气泡图和地图需要特定的经纬度或额外数值字段，此处为逻辑示意
+            else:
+                fig = px.bar(filtered_df, x=x_axis, y=y_axis, title="示例图表")
+            
+            # 添加数值标签与格式设置 (Plotly原生支持)
+            if chart_type in ["柱状图", "折线图"]:
+                fig.update_traces(texttemplate='%{y:.2s}', textposition='outside') # 添加数值
+                fig.update_layout(yaxis_tickformat=',.0f') # 坐标轴格式设置
+            
+            st.plotly_chart(fig, use_container_width=True)
+
 else:
-    # 2. 顶部全局筛选栏
-    st.header("🔍 全局数据筛选")
-    filter_cols = st.columns(4)
-    filters = {}
-    # 取前4个非数值列作为筛选示例
-    cat_cols = df.select_dtypes(include=['object', 'category']).columns[:4]
-    
-    for i, col in enumerate(cat_cols):
-        with filter_cols[i]:
-            unique_vals = df[col].dropna().unique()
-            selected = st.multiselect(f"筛选 {col}", options=unique_vals, key=f"filter_{col}")
-            if selected:
-                filters[col] = selected
-
-    # 应用筛选
-    filtered_df = df.copy()
-    for col, vals in filters.items():
-        filtered_df = filtered_df[filtered_df[col].isin(vals)]
-
-    st.divider()
-
-    # 3. 图表展示区
-    st.header("📈 数据可视化展示")
-    
-    # 使用 Streamlit 的 columns 布局来展示多个图表
-    for idx, config in enumerate(st.session_state.charts_config):
-        with st.container(border=True):
-            # 图表配置行
-            col_set1, col_set2, col_set3, col_set4, col_set5 = st.columns([2, 2, 2, 2, 1])
-            with col_set1:
-                config['title'] = st.text_input("图表标题", config['title'], key=f"title_{idx}")
-            with col_set2:
-                config['type'] = st.selectbox("图表类型", ["柱状图", "条形图", "饼图", "散点图", "折线图", "线柱混搭"], key=f"type_{idx}")
-            with col_set3:
-                config['x'] = st.selectbox("X轴/维度", df.columns, index=list(df.columns).index(config['x']) if config['x'] in df.columns else 0, key=f"x_{idx}")
-            with col_set4:
-                config['y'] = st.selectbox("Y轴/数值", df.columns, index=list(df.columns).index(config['y']) if config['y'] in df.columns else (1 if len(df.columns)>1 else 0), key=f"y_{idx}")
-            
-            # 绘制图表
-            chart_df = filtered_df
-            chart_type = config['type']
-            
-            try:
-                if chart_type == "柱状图":
-                    fig = px.bar(chart_df, x=config['x'], y=config['y'], title=config['title'], text_auto=True)
-                elif chart_type == "条形图":
-                    fig = px.bar(chart_df, x=config['y'], y=config['x'], orientation='h', title=config['title'], text_auto=True)
-                elif chart_type == "饼图":
-                    fig = px.pie(chart_df, names=config['x'], values=config['y'], title=config['title'])
-                elif chart_type == "散点图":
-                    fig = px.scatter(chart_df, x=config['x'], y=config['y'], title=config['title'])
-                elif chart_type == "折线图":
-                    fig = px.line(chart_df, x=config['x'], y=config['y'], title=config['title'], markers=True)
-                elif chart_type == "线柱混搭":
-                    fig = go.Figure()
-                    fig.add_trace(go.Bar(x=chart_df[config['x']], y=chart_df[config['y']], name=config['y']))
-                    # 混搭图添加一条模拟趋势线
-                    fig.add_trace(go.Scatter(x=chart_df[config['x']], y=chart_df[config['y']], mode='lines', name='趋势'))
-                    fig.update_layout(title=config['title'])
-                
-                if chart_type != "线柱混搭":
-                    fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                st.error(f"图表生成出错: {e}")
+    st.info("👈 请先在左侧侧边栏上传Excel文件以开始分析！")
