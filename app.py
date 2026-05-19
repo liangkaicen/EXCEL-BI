@@ -5,40 +5,29 @@ import plotly.graph_objects as go
 import json
 import io
 
-# 注入自定义 CSS：隐藏左上角菜单按钮，并优化全局字体与排版
+# 注入自定义 CSS：彻底隐藏侧边栏菜单，并使用默认字体缩小字号
 st.markdown("""
 <style>
-    /* 1. 隐藏 Streamlit 默认的侧边栏收起按钮（汉堡菜单） */
-    div[data-testid="stSidebarCollapsedControl"] {
+    /* 1. 彻底隐藏 Streamlit 默认的侧边栏收起按钮（汉堡菜单） */
+    header[data-testid="stHeader"] {
         display: none !important;
     }
     
-    /* 2. 引入 Noto Serif SC 衬线字体，提升整体文艺感 */
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&display=swap');
-    
-    /* 3. 全局字体与排版优化 */
+    /* 2. 换回系统默认无衬线字体，并适当缩小全局字号 */
     html, body, [class*="css"] {
-        font-family: 'Noto Serif SC', 'Songti SC', serif !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        font-size: 14px !important; /* 适当缩小字号 */
     }
     
-    /* 优化标题字体 */
-    h1, h2, h3 {
-        font-family: 'Noto Serif SC', serif !important;
-        font-weight: 700;
-        letter-spacing: 1px;
-    }
+    /* 单独优化标题，避免过大 */
+    h1 { font-size: 28px !important; }
+    h2 { font-size: 22px !important; }
+    h3 { font-size: 18px !important; }
     
-    /* 优化普通文本的行高和颜色，避免“大字体”带来的粗糙感 */
-    p, div, label, span {
-        font-size: 16px !important;
-        line-height: 1.6 !important;
-        color: #333333 !important;
-    }
-    
-    /* 让按钮看起来更精致 */
-    button {
-        border-radius: 6px !important;
-        font-family: 'Noto Serif SC', serif !important;
+    /* 优化普通文本和标签 */
+    p, div, label, span, button {
+        font-size: 14px !important;
+        line-height: 1.5 !important;
     }
 </style>
 """, unsafe_allow_html=True)
