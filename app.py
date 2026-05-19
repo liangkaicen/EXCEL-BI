@@ -92,13 +92,18 @@ if merged_df is not None:
     filter_cols = st.multiselect("选择筛选字段（关联字段）", options=merged_df.columns)
     
     filtered_df = merged_df.copy()
-    # 动态生成筛选控件
-    cols = st.columns(len(filter_cols))
-    for i, col_name in enumerate(filter_cols):
-        unique_vals = filtered_df[col_name].dropna().unique()
-        selected_val = cols[i].selectbox(f"筛选 {col_name}", options=["全部"] + list(unique_vals))
-        if selected_val != "全部":
-            filtered_df = filtered_df[filtered_df[col_name] == selected_val]
+    
+    # 修复报错：只有当用户选择了筛选字段时，才去生成列布局
+    if filter_cols:
+        # 动态生成筛选控件
+        cols = st.columns(len(filter_cols))
+        for i, col_name in enumerate(filter_cols):
+            unique_vals = filtered_df[col_name].dropna().unique()
+            # 限制下拉框选项数量，防止数据量过大导致页面卡顿
+            options = ["全部"] + list(unique_vals[:1000]) 
+            selected_val = cols[i].selectbox(f"筛选 {col_name}", options=options)
+            if selected_val != "全部":
+                filtered_df = filtered_df[filtered_df[col_name] == selected_val]
 
     st.divider()
 
