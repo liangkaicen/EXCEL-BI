@@ -83,7 +83,11 @@ if uploaded_file is not None:
         with col2:
             st.write("**数据缺失值统计：**")
             missing_data = filtered_df.isnull().sum()
-            st.dataframe(missing_data[missing_data > 0] if missing_data.any() else "无缺失值")
+            # 修复报错：如果有缺失值展示表格，如果没有则展示成功提示语
+            if missing_data.any():
+                st.dataframe(missing_data[missing_data > 0])
+            else:
+                st.success("✅ 数据非常完美，无缺失值！")
 
     st.divider()
 
