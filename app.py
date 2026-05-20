@@ -27,26 +27,34 @@ def sort_by_period(period_str):
     number_weight = int(number_match.group(1)) if number_match else 0
     
     return (season_weight, number_weight)
-
-# --- 2. 数据加载与缓存（精准清洗类型，保住数值） ---
+    
+# --- 2. 数据加载与缓存（最终稳健版：避开 errors='ignore' 兼容性报错） ---
 @st.cache_data
 def load_data(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file)
         
-        # 精准清洗底层数据类型，规避 ArrowStringArray 报错同时保住数值
+        # 【核心修复】使用最基础的类型判断，彻底避开 pd.to_numeric 的报错
         for col in df.columns:
-            converted_numeric = pd.to_numeric(df[col], errors='ignore')
-            if pd.api.types.is_numeric_dtype(converted_numeric):
-                df[col] = converted_numeric.astype('float64')
+            # 1. 如果整列原本就是数值类型，直接强制转为标准的 float64
+            if pd.api.types.is_numeric_dtype(df[col]):
+                df[col] = df[col].astype('float64')
             else:
-                df[col] = df[col].astype(str).replace('nan', '')
+                # 2. 如果是文本或其他类型，先统一转为字符串，再尝试转为数值
+                # 如果转换失败（比如是真正的文字“北京”），coerce 会把它变成空值 NaN
+                converted = pd.to_numeric(df[col].astype(str), errors='coerce')
+                
+                # 3. 检查转换后是否还有非空的有效数值。如果有，说明这列本质是数字；如果没有，说明是纯文本
+                if converted.notna().any():
+                    df[col] = converted
+                else:
+                    # 纯文本列，转为 str 并清理掉读取时产生的 'nan' 字符串
+                    df[col] = df[col].astype(str).replace('nan', '')
                 
         return df
     except Exception as e:
         st.error(f"文件读取错误: {e}")
         return None
-
 # --- 3. 业务指标属性字典 ---
 METRIC_ATTRIBUTES = {
     '消耗类': ['线索', '粉丝', '成本'],
