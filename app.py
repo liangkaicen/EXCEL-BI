@@ -1,118 +1,130 @@
-# --- 修改后的深度智能分析引擎（增加了 core_metric 参数） ---
-def run_deep_analysis(df, core_metric):
-    st.header("🧠 深度智能分析报告")
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+
+# 页面配置
+st.set_page_config(page_title="全量智能BI分析看板", layout="wide", page_icon="📊")
+
+# --- 1. 数据加载与缓存 ---
+@st.cache_data
+def load_data(uploaded_file):
+    try:
+        return pd.read_excel(uploaded_file)
+    except Exception as e:
+        st.error(f"文件读取错误: {e}")
+        return None
+
+# --- 2. 单指标深度分析模块（新增趋势图） ---
+def analyze_single_metric(df, metric_name, time_col):
+    """针对单个指标生成深度分析报告"""
+    data = df[metric_name]
+    total_val = data.sum()
+    mean_val = data.mean()
+    std_dev = data.std()
+    cv = (std_dev / mean_val) * 100 if mean_val != 0 else 0
+    stability_status = "⚠️ 波动较大" if cv > 50 else "✅ 相对稳定"
     
-    # 自动识别分类列（用于漏斗匹配等）
-    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    with st.container(border=True):
+        st.subheader(f"📊 指标：{metric_name}")
+        
+        # 基础KPI展示
+        kpi1, kpi2, kpi3 = st.columns(3)
+        kpi1.metric("总量", f"{total_val:,.0f}")
+        kpi2.metric("平均值", f"{mean_val:,.2f}")
+        kpi3.metric("样本数", len(data))
+        
+        # 文字结论
+        st.markdown(f"""
+        - **数据稳定性**：变异系数(CV)为 **{cv:.1f}%**，表明数据表现 **{stability_status}**。
+        - **极值情况**：最大值为 **{data.max():,.2f}**，最小值为 **{data.min():,.2f}**。
+        """)
+        
+        # 绘制趋势图
+        if time_col:
+            # 优先使用日期列作为X轴
+            fig_trend = px.line(df, x=time_col, y=metric_name, title=f"{metric_name} 趋势变化", markers=True)
+        else:
+            # 如果没有日期列，使用行号（索引）作为X轴
+            df_temp = df.reset_index()
+            fig_trend = px.line(df_temp, x='index', y=metric_name, title=f"{metric_name} 趋势变化 (按行号)", markers=True)
+        
+        fig_trend.update_layout(height=300, margin=dict(l=30, r=30, t=40, b=30))
+        st.plotly_chart(fig_trend, use_container_width=True)
+
+        # 单指标分布图
+        fig_hist = px.histogram(df, x=metric_name, nbins=20, title=f"{metric_name} 分布直方图", marginal="box")
+        fig_hist.update_layout(height=300, margin=dict(l=30, r=30, t=40, b=30))
+        st.plotly_chart(fig_hist, use_container_width=True)
+
+# --- 3. 深度智能分析引擎（全量扫描版） ---
+def run_deep_analysis(df, selected_metrics):
+    st.header("🧠 全量指标深度分析报告")
     
-    if not core_metric:
-        st.warning("⚠️ 请在侧边栏选择一个核心数值指标进行分析。")
+    if not selected_metrics:
+        st.info("请在侧边栏至少选择一个核心指标进行分析。")
         return
 
-    # --- 核心指标计算 ---
-    # 计算转化率链条（依然尝试自动匹配漏斗字段）
-    funnel_steps = []
-    potential_steps = ['AI接通数', '人工接通数', '有效接通数']
-    
-    # 构建漏斗数据字典，以用户选的核心指标为起点
-    funnel_data = {core_metric: df[core_metric].sum()}
-    
-    current_val = df[core_metric].sum()
-    for step in potential_steps:
-        if step in df.columns:
-            val = df[step].sum()
-            funnel_data[step] = val
-            # 计算上一步到这一步的转化率（防止除以0）
-            if current_val > 0:
-                rate = (val / current_val) * 100
-                funnel_steps.append((step, val, rate))
-            current_val = val if val > 0 else current_val 
+    # 自动识别时间列（用于趋势图的X轴）
+    time_col = None
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]) or '日期' in col or '时间' in col:
+            time_col = col
+            break
 
-    # --- 生成文字报告 ---
-    st.subheader("📝 核心结论摘要")
+    # 动态布局：每 2 个指标并排展示
+    cols = st.columns(2)
+    for i, metric in enumerate(selected_metrics):
+        # 使用取余运算，将指标交替放入左右两列
+        with cols[i % 2]:
+            analyze_single_metric(df, metric, time_col)
+
+# --- 4. 智能图表推荐逻辑 ---
+def get_chart_config(x_series, y_series):
+    chart_type = "bar"
+    is_time = pd.api.types.is_datetime64_any_dtype(x_series)
+    is_numeric_x = pd.api.types.is_numeric_dtype(x_series)
+    is_numeric_y = pd.api.types.is_numeric_dtype(y_series)
     
-    report_text = []
-    
-    # 1. 总量分析
-    report_text.append(f"### 1. 业务规模概览")
-    report_text.append(f"本次统计周期内，核心指标 **《{core_metric}》** 总量达到 **{funnel_data[core_metric]:,.0f}**。")
-    
-    # 2. 转化漏斗分析
-    if funnel_steps:
-        report_text.append(f"### 2. 转化效率分析")
-        best_step_name, best_step_val, best_rate = max(funnel_steps, key=lambda x: x[2])
-        worst_step_name, worst_step_val, worst_rate = min(funnel_steps, key=lambda x: x[2])
-        
-        report_text.append(f"- **整体流转情况**：从 `{core_metric}` 开始，数据经过层层筛选。")
-        report_text.append(f"- **表现最佳环节**：**【{best_step_name}】** 环节转化率最高，达到 **{best_rate:.1f}%**。")
-        report_text.append(f"- **需关注瓶颈**：**【{worst_step_name}】** 环节转化率最低（**{worst_rate:.1f}%**），建议重点排查。")
-        
-        # 具体的流失数字
-        steps_with_total = [(core_metric, funnel_data[core_metric])] + [(name, val) for name, val, _ in funnel_steps]
-        for i in range(len(steps_with_total)-1):
-            curr_name, curr_val = steps_with_total[i]
-            next_name, next_val = steps_with_total[i+1]
-            loss = curr_val - next_val
-            if loss > 0:
-                report_text.append(f"- *细节：从 `{curr_name}` 到 `{next_name}` 流失了约 **{loss:,.0f}** 条数据。*")
-    else:
-        report_text.append("### 2. 转化效率分析\n- 未检测到标准的转化漏斗字段，跳过漏斗分析。")
+    if is_time:
+        chart_type = "line"
+    elif not is_numeric_x and is_numeric_y:
+        chart_type = "bar"
+    elif is_numeric_x and is_numeric_y:
+        chart_type = "scatter"
+    return chart_type
 
-    # 3. 波动性/稳定性分析
-    report_text.append(f"### 3. 数据稳定性分析")
-    std_dev = df[core_metric].std()
-    mean_val = df[core_metric].mean()
-    cv = (std_dev / mean_val) * 100 if mean_val != 0 else 0
-    
-    stability_status = "⚠️ 波动较大" if cv > 50 else "✅ 相对稳定"
-    report_text.append(f"- 核心指标 **{core_metric}** 的样本均值为 **{mean_val:,.0f}**，标准差为 **{std_dev:,.0f}**。")
-    report_text.append(f"- 变异系数(CV)为 **{cv:.1f}%**，表明近期数据表现 **{stability_status}**。")
-
-    # 渲染报告
-    final_report = "\n\n".join(report_text)
-    st.markdown(final_report)
-
-    # --- 可视化：自动漏斗图 ---
-    if funnel_steps:
-        st.divider()
-        st.subheader("📉 转化漏斗可视化")
-        
-        funnel_df = pd.DataFrame(list(funnel_data.items()), columns=['Stage', 'Count'])
-        
-        fig = go.Figure(go.Funnel(
-            y = funnel_df['Stage'],
-            x = funnel_df['Count'],
-            textinfo = "value+percent initial",
-            marker = {"color": px.colors.sequential.Viridis}
-        ))
-        fig.update_layout(height=400, margin=dict(l=50, r=50, t=50, b=50))
-        st.plotly_chart(fig, use_container_width=True)
-
-
-# --- 修改后的主程序 ---
+# --- 主程序 ---
 def main():
-    st.title("📊 深度智能数据分析看板")
+    st.title("📊 全量智能数据分析看板")
     
     # 侧边栏
     with st.sidebar:
         st.header("🛠️ 数据配置")
         uploaded_file = st.file_uploader("上传 Excel 文件", type=['xlsx', 'xls'])
         
-        # 新增：核心指标选择器
         if uploaded_file:
             df_temp = load_data(uploaded_file)
             if df_temp is not None:
+                # 提取所有数值列
                 numeric_cols = df_temp.select_dtypes(include=['number']).columns.tolist()
+                
                 if numeric_cols:
-                    st.subheader("🎯 核心指标设定")
-                    core_metric = st.selectbox("请选择本次分析的核心指标", numeric_cols)
+                    st.subheader("🎯 核心指标筛选")
+                    st.caption("默认分析所有数值指标，可手动取消勾选")
+                    # 默认全选，支持手动选择 1 到多个
+                    selected_metrics = st.multiselect(
+                        "选择要分析的指标",
+                        options=numeric_cols,
+                        default=numeric_cols
+                    )
                 else:
-                    core_metric = None
+                    selected_metrics = []
                     st.warning("未找到数值列")
             else:
-                core_metric = None
+                selected_metrics = []
         else:
-            core_metric = None
+            selected_metrics = []
         
     if uploaded_file:
         df = load_data(uploaded_file)
@@ -121,12 +133,12 @@ def main():
             with st.expander("查看原始数据", expanded=False):
                 st.dataframe(df, use_container_width=True)
             
-            # 运行深度分析（传入用户选择的核心指标）
-            run_deep_analysis(df, core_metric)
+            # 运行全量深度分析
+            run_deep_analysis(df, selected_metrics)
             
             st.divider()
             
-            # --- 自定义图表分析（保持原有逻辑） ---
+            # --- 自定义图表分析 ---
             st.header("📈 自定义图表分析")
             numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
             all_cols = df.columns.tolist()
@@ -162,7 +174,7 @@ def main():
                             if fig:
                                 st.plotly_chart(fig, use_container_width=True)
                         except Exception as e:
-                            st.error(f"图表生成失败，请检查字段类型是否匹配。错误信息: {e}")
+                            st.error(f"图表生成失败: {e}")
 
 if __name__ == "__main__":
     main()
