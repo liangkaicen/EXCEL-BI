@@ -15,44 +15,7 @@ def load_data(uploaded_file):
         st.error(f"文件读取错误: {e}")
         return None
 
-# --- 2. 单指标基础分析模块 ---
-def analyze_single_metric(df, metric_name, time_col):
-    """针对单个指标生成基础分析报告"""
-    data = df[metric_name]
-    total_val = data.sum()
-    mean_val = data.mean()
-    std_dev = data.std()
-    cv = (std_dev / mean_val) * 100 if mean_val != 0 else 0
-    stability_status = "⚠️ 波动较大" if cv > 50 else "✅ 相对稳定"
-    
-    with st.container(border=True):
-        st.subheader(f"📊 指标：{metric_name}")
-        kpi1, kpi2, kpi3 = st.columns(3)
-        kpi1.metric("总量", f"{total_val:,.0f}")
-        kpi2.metric("平均值", f"{mean_val:,.2f}")
-        kpi3.metric("样本数", len(data))
-        
-        st.markdown(f"- **数据稳定性**：变异系数(CV)为 **{cv:.1f}%**，表明数据表现 **{stability_status}**。")
-        
-        # 智能图表匹配
-        data_len = len(df)
-        is_ratio = any(keyword in metric_name for keyword in ['占比', '率', '比例', '百分比'])
-        
-        if is_ratio:
-            fig_main = px.pie(df, values=metric_name, names=df.index.astype(str), title=f"{metric_name} 结构分布", hole=0.4)
-        elif data_len <= 20:
-            fig_main = px.bar(df, x=df.index, y=metric_name, title=f"{metric_name} 数值对比", text_auto='.2s')
-        else:
-            if time_col:
-                fig_main = px.line(df, x=time_col, y=metric_name, title=f"{metric_name} 趋势变化", markers=True)
-            else:
-                df_temp = df.reset_index()
-                fig_main = px.line(df_temp, x='index', y=metric_name, title=f"{metric_name} 趋势变化 (按行号)", markers=True)
-        
-        fig_main.update_layout(height=300, margin=dict(l=30, r=30, t=40, b=30))
-        st.plotly_chart(fig_main, use_container_width=True)
-
-# --- 3. 核心指标深度扫描引擎（全自动维度拆解 + 时间周期） ---
+# --- 2. 核心指标深度扫描引擎（含大盘概览与维度拆解） ---
 def run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, time_granularity):
     st.header("🤖 核心指标多维度智能拆解")
     
@@ -60,26 +23,27 @@ def run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, ti
         st.info("请在侧边栏选择至少一个核心指标。")
         return
     
-    # 1. 处理时间维度（新增逻辑）
+    # 1. 处理时间维度，生成用于分析的时间列
     time_dim_name = None
     if time_col and time_granularity != "无":
-        # 确保日期列是 datetime 格式
         if not pd.api.types.is_datetime64_any_dtype(df[time_col]):
             df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
         
-        # 根据选择的粒度生成新的时间列
         if time_granularity == "按年":
             df['时间维度'] = df[time_col].dt.strftime('%Y年')
+            df['时间排序'] = df[time_col].dt.year
         elif time_granularity == "按月":
             df['时间维度'] = df[time_col].dt.strftime('%Y-%m')
+            df['时间排序'] = df[time_col].dt.to_period('M').astype(int)
         elif time_granularity == "按周":
             df['时间维度'] = df[time_col].dt.strftime('%Y第%W周')
+            df['时间排序'] = df[time_col].dt.strftime('%Y%W').astype(int)
         time_dim_name = '时间维度'
 
-    # 合并所有可用于拆解的维度（常规文本列 + 新生成的时间列）
+    # 合并所有可用于拆解的维度
     all_dims = categorical_cols.copy()
     if time_dim_name:
-        all_dims.insert(0, time_dim_name) # 将时间维度放在最前面
+        all_dims.insert(0, time_dim_name)
 
     if not all_dims:
         st.warning("⚠️ 未找到可用于拆解的分类维度（文本列或时间列），无法进行深度交叉分析。")
@@ -89,25 +53,78 @@ def run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, ti
     for metric in selected_metrics:
         st.divider()
         st.subheader(f"🎯 核心指标：【{metric}】的多维透视")
+        
+        # --- 核心升级：生成大盘概览话术（仅在选择时间维度时生效） ---
+        if time_dim_name:
+            # 聚合生成时间序列大盘数据
+            time_pivot = df.pivot_table(values=metric, index=['时间维度', '时间排序'], aggfunc='sum').reset_index().sort_values('时间排序')
+            
+            if len(time_pivot) >= 2:
+                # 计算环比变化
+                time_pivot['上期数值'] = time_pivot[metric].shift(1)
+                time_pivot['环比变化'] = time_pivot[metric] - time_pivot['上期数值']
+                time_pivot['环比涨跌幅'] = (time_pivot['环比变化'] / time_pivot['上期数值']) * 100
+                
+                # 获取最新一期的数据
+                latest = time_pivot.iloc[-1]
+                prev = time_pivot.iloc[-2]
+                period_name = latest['时间维度']
+                prev_period_name = prev['时间维度']
+                current_val = latest[metric]
+                change_val = latest['环比变化']
+                change_pct = latest['环比涨跌幅']
+                
+                # 找出增长和下降的贡献点（细分维度拆解）
+                # 这里我们拿第一个非时间维度（比如城市、产品）来作为主要拆解点
+                sub_dim = None
+                for dim in categorical_cols:
+                    if df[dim].nunique() > 1 and df[dim].nunique() <= 50:
+                        sub_dim = dim
+                        break
+                
+                growth_point = "数据量较少，暂无细分贡献点。"
+                if sub_dim:
+                    # 计算各细分项的环比变化
+                    sub_pivot = df.pivot_table(values=metric, index=[sub_dim, '时间排序'], aggfunc='sum').reset_index()
+                    sub_pivot_wide = sub_pivot.pivot(index=sub_dim, columns='时间排序', values=metric).reset_index()
+                    if len(sub_pivot_wide.columns) >= 3: # 至少有两期数据+索引列
+                        sub_pivot_wide['变化值'] = sub_pivot_wide.iloc[:, -1] - sub_pivot_wide.iloc[:, -2]
+                        sub_pivot_wide = sub_pivot_wide.sort_values('变化值', ascending=False)
+                        
+                        top_growth = sub_pivot_wide.iloc[0]
+                        top_decline = sub_pivot_wide.iloc[-1]
+                        
+                        if change_val > 0:
+                            growth_point = f"其中，**【{sub_dim}：{top_growth[sub_dim]}】** 拉动增长效果最明显，较上期增加了 **{top_growth['变化值']:,.2f}**。"
+                        else:
+                            growth_point = f"其中，**【{sub_dim}：{top_decline[sub_dim]}】** 是主要的下降拖累项，较上期减少了 **{abs(top_decline['变化值']):,.2f}**。"
+
+                # 生成大盘概览话术
+                trend_emoji = "📈" if change_val >= 0 else "📉"
+                trend_text = "增长" if change_val >= 0 else "下降"
+                overview_text = f"""
+                #### {trend_emoji} 大盘概览：{period_name} {metric} 整体{trend_text}
+                在 **{period_name}**，【{metric}】的总量为 **{current_val:,.2f}**。
+                与上一个周期（{prev_period_name}）相比，整体{trend_text}了 **{abs(change_val):,.2f}**，环比涨跌幅为 **{change_pct:+.2f}%**。
+                {growth_point}
+                """
+                st.info(overview_text)
+
         total_metric_val = df[metric].sum()
         
         # 3. 遍历每一个维度进行自动分析
         for dim in all_dims:
-            # 排除基数过大或过小的维度
             if df[dim].nunique() > 50 or df[dim].nunique() < 2:
                 continue
                 
             with st.expander(f"🔍 维度拆解：按【{dim}】分析", expanded=True):
                 try:
-                    # 自动聚合、排序
                     pivot_df = df.pivot_table(values=metric, index=dim, aggfunc='sum').sort_values(by=metric, ascending=False).reset_index()
                     
-                    # 提取头部和尾部数据
                     top_row = pivot_df.iloc[0]
                     bottom_row = pivot_df.iloc[-1]
                     top_contribution = (top_row[metric] / total_metric_val) * 100 if total_metric_val > 0 else 0
                     
-                    # 自动生成智能洞察文字
                     st.markdown(f"""
                     **💡 智能洞察：**
                     - **头部贡献**：**【{top_row[dim]}】** 是该指标的核心贡献者，单项数值达到 **{top_row[metric]:,.2f}**，占整体总量的 **{top_contribution:.1f}%**。
@@ -115,7 +132,6 @@ def run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, ti
                     - **业务建议**：建议总结 **【{top_row[dim]}】** 的成功经验，并关注排名后 3 位的异常低值情况。
                     """)
                     
-                    # 绘制该维度的分析图表
                     fig = px.bar(pivot_df.head(20), x=dim, y=metric, title=f"各【{dim}】的【{metric}】排名 (Top 20)", color=metric, text_auto='.2s')
                     fig.update_layout(height=350, margin=dict(l=30, r=30, t=40, b=30))
                     st.plotly_chart(fig, use_container_width=True)
@@ -123,10 +139,14 @@ def run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, ti
                 except Exception as e:
                     st.write(f"该维度无法进行数值聚合分析。")
 
-# --- 4. 主程序 ---
+# --- 3. 主程序 ---
 def main():
     st.title("🤖 全自动智能数据分析看板")
     
+    # 初始化会话状态
+    if 'run_analysis' not in st.session_state:
+        st.session_state.run_analysis = False
+
     with st.sidebar:
         st.header("🛠️ 分析配置")
         uploaded_file = st.file_uploader("上传 Excel 文件", type=['xlsx', 'xls'])
@@ -145,18 +165,23 @@ def main():
                 
                 if numeric_cols:
                     st.subheader("🎯 核心指标选择")
-                    selected_metrics = st.multiselect("选择核心指标", options=numeric_cols, default=[numeric_cols[0]])
+                    selected_metrics = st.multiselect("选择核心指标", options=numeric_cols, default=[numeric_cols[0]], key="metrics_select")
                     
-                    # 新增：时间粒度选择器
+                    # 时间粒度选择器
                     if time_col:
                         st.subheader("⏳ 时间周期拆解")
-                        time_granularity = st.selectbox("选择时间维度", ["无", "按周", "按月", "按年"], index=2) # 默认按月
+                        time_granularity = st.selectbox("选择时间维度", ["无", "按周", "按月", "按年"], index=2, key="time_granularity")
                     else:
                         time_granularity = "无"
                         st.info("未检测到日期/时间列，无法进行时间拆解。")
                 else:
                     selected_metrics = []
                     time_granularity = "无"
+                
+                # 运行按钮
+                st.divider()
+                if st.button("🚀 开始智能分析", type="primary", use_container_width=True):
+                    st.session_state.run_analysis = True
             else:
                 selected_metrics = []
                 time_granularity = "无"
@@ -170,24 +195,28 @@ def main():
             with st.expander("查看原始数据", expanded=False):
                 st.dataframe(df, use_container_width=True)
             
-            # 1. 基础单指标分析
-            st.header("📊 核心指标基础概览")
+            # 识别基础时间列
             time_col = None
             for col in df.columns:
                 if pd.api.types.is_datetime64_any_dtype(df[col]) or '日期' in str(col) or '时间' in str(col):
                     time_col = col
                     break
             
-            cols = st.columns(2)
-            for i, metric in enumerate(selected_metrics):
-                with cols[i % 2]:
-                    analyze_single_metric(df, metric, time_col)
-            
             st.divider()
             
-            # 2. 全自动多维度智能拆解（传入时间粒度参数）
-            categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
-            run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, time_granularity)
+            # 全自动多维度智能拆解（由按钮触发）
+            if st.session_state.run_analysis:
+                with st.status("⚙️ 正在进行多维度数据拆解与智能洞察生成...", expanded=True) as status:
+                    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+                    current_metrics = st.session_state.metrics_select
+                    current_time_granularity = st.session_state.time_granularity
+                    
+                    st.write("正在聚合数据并生成图表...")
+                    run_auto_dimension_scan(df, current_metrics, categorical_cols, time_col, current_time_granularity)
+                    
+                    status.update(label="✅ 智能分析完成！", state="complete", expanded=False)
+            else:
+                st.info("👈 请在左侧配置好参数后，点击【开始智能分析】按钮查看深度拆解报告。")
 
 if __name__ == "__main__":
     main()
