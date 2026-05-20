@@ -6,15 +6,27 @@ import plotly.graph_objects as go
 # 页面配置
 st.set_page_config(page_title="全自动智能BI分析看板", layout="wide", page_icon="🤖")
 
-# --- 1. 数据加载与缓存 ---
+# --- 1. 数据加载与缓存（已修复 ArrowStringArray 报错） ---
 @st.cache_data
 def load_data(uploaded_file):
     try:
-        return pd.read_excel(uploaded_file)
+        # 读取数据
+        df = pd.read_excel(uploaded_file)
+        
+        # 【核心修复】强制将所有列转换为 Pandas 最兼容的标准类型
+        # 这一步能有效规避 ArrowStringArray 等新型数据类型在排序、分组时的底层报错
+        for col in df.columns:
+            # 如果是文本类型，转为标准的 object (字符串)
+            if pd.api.types.is_string_dtype(df[col]):
+                df[col] = df[col].astype(str)
+            # 如果是数值类型，转为标准的 float64
+            elif pd.api.types.is_numeric_dtype(df[col]):
+                df[col] = df[col].astype('float64')
+                
+        return df
     except Exception as e:
         st.error(f"文件读取错误: {e}")
         return None
-
 # --- 2. 核心指标深度扫描引擎（融合业务逻辑） ---
 def run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, time_granularity):
     st.header("🤖 核心指标多维度智能拆解")
