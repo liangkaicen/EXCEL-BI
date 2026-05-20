@@ -106,6 +106,16 @@ def run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, ti
         df = df.sort_values(by=period_dim_name, key=lambda x: x.map(sort_by_period))
 
     # --- 大盘概览与归因分析 ---
+
+    # --- 调试专用：打印数据真相 ---
+st.write("### 🐞 调试信息：程序读到的数据情况")
+st.write(f"程序认为的期次列名是：`{period_col}`")
+st.write(f"Excel里实际的列名有：{list(df.columns)}")
+st.write(f"程序在 `{period_col}` 这一列里，一共找到了 {df[period_col].nunique()} 个不重复的期次：")
+st.write(df[period_col].unique()) # 打印出所有读到的期次
+st.write("---")
+# --- 调试结束 ---
+
     st.subheader("📊 核心指标大盘概览与归因")
     
     # 优先使用期次或时间维度作为趋势基准
