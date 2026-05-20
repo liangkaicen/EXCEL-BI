@@ -15,208 +15,166 @@ def load_data(uploaded_file):
         st.error(f"文件读取错误: {e}")
         return None
 
-# --- 2. 核心指标深度扫描引擎（含大盘概览与维度拆解） ---
+# --- 2. 核心指标深度扫描引擎 ---
 def run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, time_granularity):
     st.header("🤖 核心指标多维度智能拆解")
-    
-    if not selected_metrics:
-        st.info("请在侧边栏选择至少一个核心指标。")
-        return
-    
-    # 1. 处理时间维度，生成用于分析的时间列
-    time_dim_name = None
-    if time_col and time_granularity != "无":
-        if not pd.api.types.is_datetime64_any_dtype(df[time_col]):
-            df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
-        
-        if time_granularity == "按年":
-            df['时间维度'] = df[time_col].dt.strftime('%Y年')
-            df['时间排序'] = df[time_col].dt.year
-        elif time_granularity == "按月":
-            df['时间维度'] = df[time_col].dt.strftime('%Y-%m')
-            df['时间排序'] = df[time_col].dt.to_period('M').astype(int)
-        elif time_granularity == "按周":
-            df['时间维度'] = df[time_col].dt.strftime('%Y第%W周')
-            df['时间排序'] = df[time_col].dt.strftime('%Y%W').astype(int)
-        time_dim_name = '时间维度'
 
-    # 合并所有可用于拆解的维度
-    all_dims = categorical_cols.copy()
-    if time_dim_name:
-        all_dims.insert(0, time_dim_name)
+    # 核心逻辑：只有点击了按钮，才会进入这个函数
+    # 使用 st.status 来管理“运行中”和“完成”的状态显示
+    with st.status("正在聚合数据并生成图表...", expanded=True) as status:
+        try:
+            # --- 第一步：处理时间维度 ---
+            time_dim_name = None
+            if time_col and time_granularity != "无":
+                if not pd.api.types.is_datetime64_any_dtype(df[time_col]):
+                    df[time_col] = pd.to_datetime(df[time_col])
 
-    if not all_dims:
-        st.warning("⚠️ 未找到可用于拆解的分类维度（文本列或时间列），无法进行深度交叉分析。")
-        return
+                if time_granularity == "按月":
+                    df['_time_period'] = df[time_col].dt.to_period('M').astype(str)
+                elif time_granularity == "按周":
+                    df['_time_period'] = df[time_col].dt.isocalendar().week.astype(str) + "周"
+                elif time_granularity == "按年":
+                    df['_time_period'] = df[time_col].dt.year.astype(str)
 
-    # 2. 遍历用户选择的每一个核心指标
-    for metric in selected_metrics:
-        st.divider()
-        st.subheader(f"🎯 核心指标：【{metric}】的多维透视")
-        
-        # --- 核心升级：生成大盘概览话术（仅在选择时间维度时生效） ---
-        if time_dim_name:
-            # 聚合生成时间序列大盘数据
-            time_pivot = df.pivot_table(values=metric, index=['时间维度', '时间排序'], aggfunc='sum').reset_index().sort_values('时间排序')
-            
-            if len(time_pivot) >= 2:
-                # 计算环比变化
-                time_pivot['上期数值'] = time_pivot[metric].shift(1)
-                time_pivot['环比变化'] = time_pivot[metric] - time_pivot['上期数值']
-                time_pivot['环比涨跌幅'] = (time_pivot['环比变化'] / time_pivot['上期数值']) * 100
-                
-                # 获取最新一期的数据
-                latest = time_pivot.iloc[-1]
-                prev = time_pivot.iloc[-2]
-                period_name = latest['时间维度']
-                prev_period_name = prev['时间维度']
-                current_val = latest[metric]
-                change_val = latest['环比变化']
-                change_pct = latest['环比涨跌幅']
-                
-                # 找出增长和下降的贡献点（细分维度拆解）
-                # 这里我们拿第一个非时间维度（比如城市、产品）来作为主要拆解点
-                sub_dim = None
-                for dim in categorical_cols:
-                    if df[dim].nunique() > 1 and df[dim].nunique() <= 50:
-                        sub_dim = dim
-                        break
-                
-                growth_point = "数据量较少，暂无细分贡献点。"
-                if sub_dim:
-                    # 计算各细分项的环比变化
-                    sub_pivot = df.pivot_table(values=metric, index=[sub_dim, '时间排序'], aggfunc='sum').reset_index()
-                    sub_pivot_wide = sub_pivot.pivot(index=sub_dim, columns='时间排序', values=metric).reset_index()
-                    if len(sub_pivot_wide.columns) >= 3: # 至少有两期数据+索引列
-                        sub_pivot_wide['变化值'] = sub_pivot_wide.iloc[:, -1] - sub_pivot_wide.iloc[:, -2]
-                        sub_pivot_wide = sub_pivot_wide.sort_values('变化值', ascending=False)
-                        
-                        top_growth = sub_pivot_wide.iloc[0]
-                        top_decline = sub_pivot_wide.iloc[-1]
-                        
-                        if change_val > 0:
-                            growth_point = f"其中，**【{sub_dim}：{top_growth[sub_dim]}】** 拉动增长效果最明显，较上期增加了 **{top_growth['变化值']:,.2f}**。"
-                        else:
-                            growth_point = f"其中，**【{sub_dim}：{top_decline[sub_dim]}】** 是主要的下降拖累项，较上期减少了 **{abs(top_decline['变化值']):,.2f}**。"
+                time_dim_name = '时间周期 (' + time_granularity + ')'
+                st.caption(f"ℹ️ 已检测到时间列，正在按 **{time_granularity}** 进行趋势分析...")
+            else:
+                st.caption("ℹ️ 未选择时间维度，仅进行静态维度拆解。")
 
-                # 生成大盘概览话术
-                trend_emoji = "📈" if change_val >= 0 else "📉"
-                trend_text = "增长" if change_val >= 0 else "下降"
-                overview_text = f"""
-                #### {trend_emoji} 大盘概览：{period_name} {metric} 整体{trend_text}
-                在 **{period_name}**，【{metric}】的总量为 **{current_val:,.2f}**。
-                与上一个周期（{prev_period_name}）相比，整体{trend_text}了 **{abs(change_val):,.2f}**，环比涨跌幅为 **{change_pct:+.2f}%**。
-                {growth_point}
-                """
-                st.info(overview_text)
-
-        total_metric_val = df[metric].sum()
-        
-        # 3. 遍历每一个维度进行自动分析
-        for dim in all_dims:
-            if df[dim].nunique() > 50 or df[dim].nunique() < 2:
-                continue
-                
-            with st.expander(f"🔍 维度拆解：按【{dim}】分析", expanded=True):
-                try:
-                    pivot_df = df.pivot_table(values=metric, index=dim, aggfunc='sum').sort_values(by=metric, ascending=False).reset_index()
-                    
-                    top_row = pivot_df.iloc[0]
-                    bottom_row = pivot_df.iloc[-1]
-                    top_contribution = (top_row[metric] / total_metric_val) * 100 if total_metric_val > 0 else 0
-                    
-                    st.markdown(f"""
-                    **💡 智能洞察：**
-                    - **头部贡献**：**【{top_row[dim]}】** 是该指标的核心贡献者，单项数值达到 **{top_row[metric]:,.2f}**，占整体总量的 **{top_contribution:.1f}%**。
-                    - **长尾差距**：表现最好的 **【{top_row[dim]}】** 与排名末尾的 **【{bottom_row[dim]}】**（数值：{bottom_row[metric]:,.2f}）之间存在显著差距。
-                    - **业务建议**：建议总结 **【{top_row[dim]}】** 的成功经验，并关注排名后 3 位的异常低值情况。
-                    """)
-                    
-                    fig = px.bar(pivot_df.head(20), x=dim, y=metric, title=f"各【{dim}】的【{metric}】排名 (Top 20)", color=metric, text_auto='.2s')
-                    fig.update_layout(height=350, margin=dict(l=30, r=30, t=40, b=30))
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                except Exception as e:
-                    st.write(f"该维度无法进行数值聚合分析。")
-
-# --- 3. 主程序 ---
-def main():
-    st.title("🤖 全自动智能数据分析看板")
-    
-    # 初始化会话状态
-    if 'run_analysis' not in st.session_state:
-        st.session_state.run_analysis = False
-
-    with st.sidebar:
-        st.header("🛠️ 分析配置")
-        uploaded_file = st.file_uploader("上传 Excel 文件", type=['xlsx', 'xls'])
-        
-        if uploaded_file:
-            df_temp = load_data(uploaded_file)
-            if df_temp is not None:
-                numeric_cols = df_temp.select_dtypes(include=['number']).columns.tolist()
-                
-                # 自动识别时间列
-                time_col = None
-                for col in df_temp.columns:
-                    if pd.api.types.is_datetime64_any_dtype(df_temp[col]) or '日期' in str(col) or '时间' in str(col):
-                        time_col = col
-                        break
-                
-                if numeric_cols:
-                    st.subheader("🎯 核心指标选择")
-                    selected_metrics = st.multiselect("选择核心指标", options=numeric_cols, default=[numeric_cols[0]], key="metrics_select")
-                    
-                    # 时间粒度选择器
-                    if time_col:
-                        st.subheader("⏳ 时间周期拆解")
-                        time_granularity = st.selectbox("选择时间维度", ["无", "按周", "按月", "按年"], index=2, key="time_granularity")
-                    else:
-                        time_granularity = "无"
-                        st.info("未检测到日期/时间列，无法进行时间拆解。")
-                else:
-                    selected_metrics = []
-                    time_granularity = "无"
-                
-                # 运行按钮
+            # --- 第二步：遍历核心指标 ---
+            for metric in selected_metrics:
                 st.divider()
-                if st.button("🚀 开始智能分析", type="primary", use_container_width=True):
-                    st.session_state.run_analysis = True
-            else:
-                selected_metrics = []
-                time_granularity = "无"
-        else:
-            selected_metrics = []
-            time_granularity = "无"
-        
+                st.subheader(f"🎯 核心指标：【{metric}】的多维透视")
+
+                # 1. 生成大盘概览话术 (如果有时间维度)
+                if time_dim_name:
+                    # 按时间排序
+                    time_summary = df.groupby('_time_period')[metric].sum().reset_index()
+                    time_summary = time_summary.sort_values('_time_period')
+
+                    if len(time_summary) >= 2:
+                        current_val = time_summary.iloc[-1][metric]
+                        prev_val = time_summary.iloc[-2][metric]
+                        diff = current_val - prev_val
+                        pct_change = (diff / prev_val) * 100 if prev_val != 0 else 0
+
+                        trend = "📈 上升" if diff > 0 else "📉 下降" if diff < 0 else "➡️ 持平"
+                        color = "red" if diff > 0 else "green" if diff < 0 else "gray" # 注意：通常涨是红/绿取决于市场，这里简单处理
+
+                        st.markdown(f"""
+                        > **📊 大盘概览**：在最新的时间周期（{time_summary.iloc[-1]['_time_period']}），**{metric}** 达到 **{current_val:,.0f}**。
+                        > 较上一周期（{time_summary.iloc[-2]['_time_period']}）{trend} **{abs(diff):,.0f}** ({pct_change:+.1f}%)。
+                        """)
+
+                        # 查找增长/下降的主要贡献点 (简略版逻辑：对比两期的维度差值)
+                        # 这里为了演示，我们简单列出最新一期的Top3
+                        latest_period = time_summary.iloc[-1]['_time_period']
+                        df_latest = df[df['_time_period'] == latest_period]
+
+                        st.markdown(f"**🔍 最新周期（{latest_period}）表现突出的维度：**")
+                        cols = st.columns(3)
+                        for i, dim in enumerate(categorical_cols[:3]): # 只看前3个维度
+                            top_row = df_latest.groupby(dim)[metric].sum().sort_values(ascending=False).head(1)
+                            if not top_row.empty:
+                                dim_name = top_row.index[0]
+                                dim_val = top_row.values[0]
+                                cols[i].metric(label=f"Top {dim}", value=f"{dim_val:,.0f}", delta=dim_name)
+
+                    # 绘制趋势图
+                    fig_trend = px.line(time_summary, x='_time_period', y=metric, markers=True, title=f"{metric} 趋势图")
+                    st.plotly_chart(fig_trend, use_container_width=True)
+
+                # 2. 遍历所有分类维度进行拆解
+                for dim in categorical_cols:
+                    # 聚合数据
+                    dim_summary = df.groupby(dim)[metric].agg(['sum', 'count']).reset_index()
+                    dim_summary = dim_summary.sort_values('sum', ascending=False)
+
+                    # 只展示数据量大于0的维度
+                    dim_summary = dim_summary[dim_summary['count'] > 0]
+
+                    if dim_summary.empty:
+                        continue
+
+                    # 生成洞察
+                    top_item = dim_summary.iloc[0]
+                    top_name = top_item[dim]
+                    top_val = top_item['sum']
+                    contribution = (top_val / dim_summary['sum'].sum()) * 100
+
+                    with st.expander(f"📊 维度拆解：按【{dim}】分析 (共 {len(dim_summary)} 个分类)", expanded=False):
+                        c1, c2 = st.columns([1, 2])
+                        with c1:
+                            st.markdown(f"**智能洞察**：")
+                            st.write(f"- **{top_name}** 是该维度的绝对主力，贡献了 **{top_val:,.0f}**，占比高达 **{contribution:.1f}%**。")
+
+                            # 找出尾部
+                            bottom_item = dim_summary.iloc[-1]
+                            st.write(f"- 表现最弱的是 **{bottom_item[dim]}**，仅为 {bottom_item['sum']:,.0f}。")
+
+                        with c2:
+                            # 绘图
+                            fig = px.bar(dim_summary, x=dim, y='sum', text_auto='.2s',
+                                         title=f"{metric} 按 {dim} 分布", color='sum', color_continuous_scale='Blues')
+                            st.plotly_chart(fig, use_container_width=True)
+
+            # 状态更新为完成
+            status.update(label="✅ 智能分析完成！", state="complete", expanded=False)
+
+        except Exception as e:
+            status.update(label="❌ 分析出错", state="error")
+            st.error(f"分析过程中发生错误: {e}")
+
+# --- 3. 主程序入口 ---
+def main():
+    # --- 侧边栏设置 ---
+    st.sidebar.header("🎛️ 控制面板")
+
+    # 1. 文件上传
+    uploaded_file = st.sidebar.file_uploader("上传Excel文件", type=["xlsx", "xls", "csv"])
+
     if uploaded_file:
+        # 加载数据
         df = load_data(uploaded_file)
-        if df is not None and not df.empty:
-            with st.expander("查看原始数据", expanded=False):
-                st.dataframe(df, use_container_width=True)
-            
-            # 识别基础时间列
+        if df is not None:
+            # 自动识别列类型
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+            date_cols = df.select_dtypes(include=['datetime', 'datetimetz']).columns.tolist()
+
+            # 尝试将看起来像日期的字符串列也加入日期选项（简单启发式）
+            potential_dates = [col for col in categorical_cols if 'date' in col.lower() or 'time' in col.lower() or '日' in col or '月' in col or '年' in col]
+            all_time_options = date_cols + potential_dates
+
+            st.sidebar.divider()
+
+            # 2. 核心指标选择
+            metric_options = numeric_cols
+            selected_metrics = st.sidebar.multiselect("选择核心指标", metric_options, default=metric_options[:1] if metric_options else [])
+
+            # 3. 时间维度拆解
+            st.sidebar.subheader("⏳ 时间周期拆解")
+            time_granularity = st.sidebar.selectbox("选择时间维度", ["无", "按年", "按月", "按周"])
             time_col = None
-            for col in df.columns:
-                if pd.api.types.is_datetime64_any_dtype(df[col]) or '日期' in str(col) or '时间' in str(col):
-                    time_col = col
-                    break
-            
-            st.divider()
-            
-            # 全自动多维度智能拆解（由按钮触发）
-            if st.session_state.run_analysis:
-                with st.status("⚙️ 正在进行多维度数据拆解与智能洞察生成...", expanded=True) as status:
-                    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
-                    current_metrics = st.session_state.metrics_select
-                    current_time_granularity = st.session_state.time_granularity
-                    
-                    st.write("正在聚合数据并生成图表...")
-                    run_auto_dimension_scan(df, current_metrics, categorical_cols, time_col, current_time_granularity)
-                    
-                    status.update(label="✅ 智能分析完成！", state="complete", expanded=False)
+            if time_granularity != "无":
+                time_col = st.sidebar.selectbox("选择日期列", all_time_options, index=0 if all_time_options else 0)
+
+            # 4. 运行按钮 (关键控制点)
+            st.sidebar.divider()
+            run_button = st.sidebar.button("🚀 开始智能分析", type="primary", use_container_width=True)
+
+            # --- 主逻辑控制 ---
+            # 只有当按钮被点击时，才执行分析函数
+            # 利用 session_state 保持运行状态（可选，这里主要靠按钮触发）
+            if run_button:
+                # 调用分析函数
+                run_auto_dimension_scan(df, selected_metrics, categorical_cols, time_col, time_granularity)
             else:
-                st.info("👈 请在左侧配置好参数后，点击【开始智能分析】按钮查看深度拆解报告。")
+                # 按钮没点的时候，显示一些引导信息
+                st.info("👈 请在左侧配置参数，并点击 **开始智能分析** 按钮以生成报告。")
+
+    else:
+        st.info("请上传 Excel 文件以开始分析。")
 
 if __name__ == "__main__":
     main()
